@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Memory Match — টেলিগ্রাম মিনি অ্যাপ</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:linear-gradient(160deg,#232946 0%,#3b4371 100%); min-height:100vh; color:#fff; user-select:none; padding:14px; }
+  .home { position:fixed; top:10px; left:10px; z-index:60; background:rgba(255,255,255,.18); color:#fff; text-decoration:none; padding:6px 12px; border-radius:999px; font-size:14px; font-weight:600; }
+  h1 { text-align:center; font-size:24px; margin:26px 0 4px; }
+  .sub { text-align:center; color:#b8c1ec; font-size:14px; margin-bottom:14px; }
+  .hud { display:flex; justify-content:center; gap:10px; margin-bottom:16px; }
+  .box { background:rgba(255,255,255,.12); border-radius:999px; padding:6px 16px; font-weight:700; font-size:15px; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; max-width:400px; margin:0 auto; }
+  .card3d { perspective:600px; aspect-ratio:1; cursor:pointer; }
+  .inner { position:relative; width:100%; height:100%; transform-style:preserve-3d; transition:transform .35s; }
+  .card3d.open .inner, .card3d.done .inner { transform:rotateY(180deg); }
+  .face { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; border-radius:14px; backface-visibility:hidden; -webkit-backface-visibility:hidden; }
+  .front { background:linear-gradient(135deg,#ffb347,#ff8c42); font-size:26px; color:#fff; box-shadow:0 4px 10px rgba(0,0,0,.3); }
+  .back { background:#fffffe; transform:rotateY(180deg); font-size:38px; box-shadow:0 4px 10px rgba(0,0,0,.3); }
+  .card3d.done .back { background:#d3f9d8; }
+  .btn { display:block; margin:20px auto 0; border:none; border-radius:999px; padding:13px 34px; font-size:16px; font-weight:700; cursor:pointer; background:linear-gradient(135deg,#7ed6a5,#38b27a); color:#fff; }
+  .win { text-align:center; margin-top:16px; font-size:18px; font-weight:700; color:#ffe066; min-height:26px; }
+  .best { text-align:center; margin-top:8px; font-size:13px; color:#8aa0b4; }
+</style>
+</head>
+<body>
+<a class="home" href="../index.html">🏠 সব গেম</a>
+<h1>🧠 Memory Match</h1>
+<div class="sub">কার্ড উল্টে জোড়া মেলাও — সবগুলো মিললেই জিত!</div>
+<div class="hud">
+  <div class="box">👆 চাল: <span id="moves">0</span></div>
+  <div class="box">⏱️ <span id="time">0</span> সে.</div>
+  <div class="box">🍓 জোড়া: <span id="pairs">0</span>/8</div>
+</div>
+<div class="grid" id="grid"></div>
+<div class="win" id="win"></div>
+<button class="btn" id="restart">🔄 নতুন খেলা</button>
+<div class="best">সেরা: <span id="best">—</span></div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+if (tg) { tg.ready(); tg.expand(); }
+const haptic = t => { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(t || 'light'); } catch(e){} };
+
+const EMOJIS = ['🍎','🍌','🍇','🍓','🍊','🍋','🍉','🥭'];
+const grid = document.getElementById('grid');
+let first = null, lock = false, moves = 0, pairs = 0, secs = 0, timer = null, started = false;
+
+function showBest() {
+  const b = localStorage.getItem('memory_best');
+  document.getElementById('best').textContent = b ? b + ' চাল' : '—';
+}
+function newGame() {
+  const deck = [...EMOJIS, ...EMOJIS].sort(() => Math.random() - 0.5);
+  grid.innerHTML = ''; first = null; lock = false; moves = 0; pairs = 0; secs = 0; started = false;
+  clearInterval(timer); timer = null;
+  document.getElementById('moves').textContent = '0';
+  document.getElementById('time').textContent = '0';
+  document.getElementById('pairs').textContent = '0';
+  document.getElementById('win').textContent = '';
+  deck.forEach(e => {
+    const c = document.createElement('div');
+    c.className = 'card3d'; c.dataset.emoji = e;
+    c.innerHTML = '<div class="inner"><div class="face front">❓</div><div class="face back">' + e + '</div></div>';
+    c.addEventListener('click', () => flip(c));
+    grid.appendChild(c);
+  });
+}
+function flip(c) {
+  if (lock || c.classList.contains('open') || c.classList.contains('done')) return;
+  if (!started) { started = true; timer = setInterval(() => { secs++; document.getElementById('time').textContent = secs; }, 1000); }
+  c.classList.add('open'); haptic('light');
+  if (!first) { first = c; return; }
+  moves++; document.getElementById('moves').textContent = moves;
+  if (first.dataset.emoji === c.dataset.emoji) {
+    first.classList.add('done'); c.classList.add('done');
+    first = null; pairs++;
+    document.getElementById('pairs').textContent = pairs;
+    haptic('medium');
+    if (pairs === 8) {
+      clearInterval(timer);
+      const b = localStorage.getItem('memory_best');
+      if (!b || moves < +b) localStorage.setItem('memory_best', moves);
+      showBest();
+      document.getElementById('win').textContent = '🎉 জিতেছ! ' + moves + ' চালে, ' + secs + ' সেকেন্ডে!';
+      haptic('heavy');
+    }
+  } else {
+    lock = true;
+    const a = first; first = null;
+    setTimeout(() => { a.classList.remove('open'); c.classList.remove('open'); lock = false; }, 650);
+  }
+}
+document.getElementById('restart').addEventListener('click', newGame);
+showBest(); newGame();
+</script>
+</body>
+</html>

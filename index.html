@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fruit Catch — Telegram Mini App</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; font-family:'Segoe UI', system-ui, sans-serif;
+    background:linear-gradient(180deg,#87CEEB 0%,#b8e6ff 55%,#e8f9e8 100%); touch-action:none; user-select:none; }
+  #game { display:block; width:100%; height:100%; }
+  .hud { position:fixed; top:10px; left:0; right:0; display:flex; justify-content:space-between;
+    padding:0 14px; pointer-events:none; z-index:5; }
+  .hud .box { background:rgba(255,255,255,.82); border-radius:14px; padding:6px 12px;
+    font-weight:700; font-size:16px; color:#274b63; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(20,40,60,.45); backdrop-filter:blur(3px); z-index:10; text-align:center; padding:20px; }
+  .overlay.hidden { display:none; }
+  .card { background:#fff; border-radius:24px; padding:28px 24px; max-width:330px; width:100%;
+    box-shadow:0 12px 40px rgba(0,0,0,.25); }
+  .card h1 { font-size:30px; margin-bottom:6px; }
+  .card p { color:#5a7184; font-size:15px; line-height:1.45; margin-bottom:14px; }
+  .big-score { font-size:44px; font-weight:800; color:#f39c12; }
+  .btn { display:block; width:100%; border:none; border-radius:16px; padding:14px; margin-top:10px;
+    font-size:17px; font-weight:700; cursor:pointer; transition:transform .08s; }
+  .btn:active { transform:scale(.97); }
+  .btn-main { background:linear-gradient(135deg,#ffb347,#ff8c42); color:#fff; box-shadow:0 6px 16px rgba(255,140,66,.4); }
+  .btn-ad { background:linear-gradient(135deg,#7ed6a5,#38b27a); color:#fff; }
+  .btn small { display:block; font-weight:500; font-size:12px; opacity:.9; }
+  .best { margin-top:10px; font-size:13px; color:#8aa0b4; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div class="hud">
+  <div class="box">⭐ <span id="score">0</span></div>
+  <div class="box">⏱️ <span id="time">60</span></div>
+  <div class="box"><span id="lives">❤️❤️❤️</span></div>
+</div>
+
+<div class="overlay" id="startScreen">
+  <div class="card">
+    <h1>🥭 Fruit Catch</h1>
+    <p>ঝুড়ি নাড়িয়ে পড়ন্ত ফল ধরো!<br>🍎🥭🍊🍓 = পয়েন্ট &nbsp;•&nbsp; ⭐ = বোনাস<br>💣 বোমা এড়িয়ে চলো — ৩টা লাইফ!</p>
+    <button class="btn btn-main" id="startBtn">▶️ খেলা শুরু করো</button>
+    <div class="best">সেরা স্কোর: <span id="bestStart">0</span></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="overScreen">
+  <div class="card">
+    <h1>🎉 খেলা শেষ!</h1>
+    <div class="big-score"><span id="finalScore">0</span></div>
+    <p>পয়েন্ট পেয়েছো</p>
+    <button class="btn btn-ad" id="adBtn">🎁 বিজ্ঞাপন দেখে +15 সেকেন্ড<small>রিওয়ার্ডেড অ্যাড — শীঘ্রই চালু হচ্ছে</small></button>
+    <button class="btn btn-main" id="againBtn">🔄 আবার খেলো</button>
+    <div class="best">সেরা স্কোর: <span id="bestOver">0</span></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // ---------- Telegram WebApp ----------
+  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  if (tg) { tg.ready(); tg.expand(); if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); }
+  function haptic(type){
+    if (!tg || !tg.HapticFeedback) return;
+    if (type === 'catch') tg.HapticFeedback.impactOccurred('light');
+    if (type === 'gold')  tg.HapticFeedback.impactOccurred('medium');
+    if (type === 'bomb')  tg.HapticFeedback.notificationOccurred('error');
+    if (type === 'win')   tg.HapticFeedback.notificationOccurred('success');
+  }
+
+  // ---------- Rewarded Ad slot ----------
+  // আসল আয়ের জন্য: GigaPub / AdsGram-এ পাবলিশার হিসেবে রেজিস্টার করে
+  // তাদের SDK স্ক্রিপ্ট এখানে বসালেই showRewardedAd() আসল বিজ্ঞাপন দেখাবে।
+  // এখন এটি একটি প্লেসহোল্ডার — 2 সেকেন্ড "লোডিং" দেখিয়ে বোনাস দেয়।
+  function showRewardedAd(onReward){
+    var btn = document.getElementById('adBtn');
+    btn.disabled = true; btn.firstChild.textContent = '⏳ বিজ্ঞাপন লোড হচ্ছে...';
+    setTimeout(function(){
+      btn.disabled = false; btn.firstChild.textContent = '🎁 বিজ্ঞাপন দেখে +15 সেকেন্ড';
+      onReward();
+    }, 2000);
+  }
+
+  // ---------- Audio (tiny WebAudio beeps, no files) ----------
+  var AC = null;
+  function beep(freq, dur, type){
+    try {
+      if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+      var o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.15, AC.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + dur);
+      o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime + dur);
+    } catch(e){}
+  }
+
+  // ---------- Game ----------
+  var canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+  var W, H;
+  function resize(){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+  window.addEventListener('resize', resize); resize();
+
+  var FRUITS = [ {e:'🍎',p:10}, {e:'🥭',p:10}, {e:'🍊',p:10}, {e:'🍓',p:15}, {e:'🍇',p:15} ];
+  var GOLD = {e:'⭐',p:30}, BOMB = {e:'💣',p:0};
+  var items = [], basketX = W/2, targetX = W/2;
+  var score = 0, lives = 3, timeLeft = 60, playing = false, lastSpawn = 0, lastTick = 0, raf = null;
+  var best = parseInt(localStorage.getItem('fruitcatch_best') || '0', 10);
+  document.getElementById('bestStart').textContent = best;
+
+  var scoreEl = document.getElementById('score'), timeEl = document.getElementById('time'),
+      livesEl = document.getElementById('lives');
+
+  function drawBasket(){
+    var bw = 92, bh = 54, x = basketX - bw/2, y = H - bh - 26;
+    ctx.font = '64px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🧺', basketX, y + bh/2);
+    return {x:x, y:y, w:bw, h:bh};
+  }
+  function spawn(now){
+    var r = Math.random();
+    var kind = r < 0.07 ? GOLD : (r < 0.20 ? BOMB : FRUITS[Math.floor(Math.random()*FRUITS.length)]);
+    var speed = 2.2 + (60 - timeLeft) * 0.045 + Math.random() * 1.6;
+    items.push({ e:kind.e, p:kind.p, bomb:kind===BOMB, x: 30 + Math.random()*(W-60),
+                 y: -30, vy: speed, rot: (Math.random()-0.5)*0.6 });
+  }
+  function loop(now){
+    if (!playing) return;
+    ctx.clearRect(0,0,W,H);
+    // clouds
+    ctx.font = '44px serif'; ctx.globalAlpha = .8;
+    ctx.fillText('☁️', (now/60 % (W+120)) - 60, 70);
+    ctx.fillText('☁️', ((now/90 + 200) % (W+160)) - 80, 120);
+    ctx.globalAlpha = 1;
+    var basket = drawBasket();
+    basketX += (targetX - basketX) * 0.35;
+
+    if (now - lastSpawn > Math.max(340, 620 - (60-timeLeft)*7)) { spawn(now); lastSpawn = now; }
+    for (var i = items.length-1; i >= 0; i--){
+      var it = items[i]; it.y += it.vy; it.rot += 0.01;
+      ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(Math.sin(it.rot)*0.25);
+      ctx.font = '40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(it.e, 0, 0); ctx.restore();
+      var caught = it.y > basket.y - 6 && it.y < basket.y + basket.h && Math.abs(it.x - basketX) < basket.w/2 + 8;
+      if (caught){
+        if (it.bomb){ lives--; haptic('bomb'); beep(140, .25, 'sawtooth'); flash('💥'); }
+        else { score += it.p; haptic(it.p >= 30 ? 'gold' : 'catch'); beep(it.p >= 30 ? 880 : 520, .12); }
+        items.splice(i,1); updateHud(); continue;
+      }
+      if (it.y > H + 40){
+        if (!it.bomb){ /* missed fruit: no penalty, keeps it friendly */ }
+        items.splice(i,1);
+      }
+    }
+    if (lives <= 0) return gameOver();
+    if (now - lastTick >= 1000){ lastTick = now; timeLeft--; timeEl.textContent = Math.max(0,timeLeft);
+      if (timeLeft <= 0) return gameOver(); }
+    raf = requestAnimationFrame(loop);
+  }
+  var flashTxt = null, flashUntil = 0;
+  function flash(t){ flashTxt = t; flashUntil = performance.now() + 350; }
+  setInterval(function(){
+    if (flashTxt && performance.now() < flashUntil && playing){
+      ctx.font = '70px serif'; ctx.textAlign='center'; ctx.fillText(flashTxt, W/2, H/2);
+    }
+  }, 50);
+  function updateHud(){
+    scoreEl.textContent = score;
+    livesEl.textContent = '❤️'.repeat(Math.max(0,lives)) + '🖤'.repeat(Math.max(0,3-lives));
+  }
+  function start(extraTime){
+    score = extraTime ? score : 0; lives = 3; timeLeft = extraTime ? extraTime : 60;
+    items = []; playing = true; lastSpawn = 0; lastTick = performance.now();
+    updateHud(); timeEl.textContent = timeLeft;
+    document.getElementById('startScreen').classList.add('hidden');
+    document.getElementById('overScreen').classList.add('hidden');
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+  }
+  function gameOver(){
+    playing = false; cancelAnimationFrame(raf);
+    if (score > best){ best = score; localStorage.setItem('fruitcatch_best', String(best)); }
+    document.getElementById('finalScore').textContent = score;
+    document.getElementById('bestOver').textContent = best;
+    document.getElementById('overScreen').classList.remove('hidden');
+    haptic('win'); beep(660,.15); setTimeout(function(){ beep(880,.2); }, 140);
+  }
+  // input: drag / touch / mouse
+  function moveTo(x){ targetX = Math.max(40, Math.min(W-40, x)); }
+  canvas.addEventListener('touchstart', function(e){ moveTo(e.touches[0].clientX); }, {passive:true});
+  canvas.addEventListener('touchmove',  function(e){ moveTo(e.touches[0].clientX); e.preventDefault(); }, {passive:false});
+  canvas.addEventListener('mousemove',  function(e){ moveTo(e.clientX); });
+
+  document.getElementById('startBtn').addEventListener('click', function(){ beep(520,.1); start(0); });
+  document.getElementById('againBtn').addEventListener('click', function(){ beep(520,.1); start(0); });
+  document.getElementById('adBtn').addEventListener('click', function(){
+    showRewardedAd(function(){ start(60 + 15); score = parseInt(document.getElementById('finalScore').textContent,10); updateHud(); });
+  });
+})();
+</script>
+</body>
+</html>

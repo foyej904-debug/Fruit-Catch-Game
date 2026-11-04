@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Fruit Catch — Telegram Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://ad.gigapub.tech/script?id=8968"></script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { width:100%; height:100%; overflow:hidden; font-family:'Segoe UI', system-ui, sans-serif;
@@ -55,7 +56,7 @@
     <h1>🎉 খেলা শেষ!</h1>
     <div class="big-score"><span id="finalScore">0</span></div>
     <p>পয়েন্ট পেয়েছো</p>
-    <button class="btn btn-ad" id="adBtn">🎁 বিজ্ঞাপন দেখে +15 সেকেন্ড<small>রিওয়ার্ডেড অ্যাড — শীঘ্রই চালু হচ্ছে</small></button>
+    <button class="btn btn-ad" id="adBtn">🎁 বিজ্ঞাপন দেখে +15 সেকেন্ড<small>GigaPub রিওয়ার্ডেড অ্যাড</small></button>
     <button class="btn btn-main" id="againBtn">🔄 আবার খেলো</button>
     <div class="best">সেরা স্কোর: <span id="bestOver">0</span></div>
   </div>
@@ -75,17 +76,38 @@
     if (type === 'win')   tg.HapticFeedback.notificationOccurred('success');
   }
 
-  // ---------- Rewarded Ad slot ----------
-  // আসল আয়ের জন্য: GigaPub / AdsGram-এ পাবলিশার হিসেবে রেজিস্টার করে
-  // তাদের SDK স্ক্রিপ্ট এখানে বসালেই showRewardedAd() আসল বিজ্ঞাপন দেখাবে।
-  // এখন এটি একটি প্লেসহোল্ডার — 2 সেকেন্ড "লোডিং" দেখিয়ে বোনাস দেয়।
+  // ---------- Rewarded Ad (GigaPub, app ID 8968) ----------
+  function setAdBtn(label, disabled){
+    var btn = document.getElementById('adBtn');
+    if (!btn) return;
+    btn.disabled = !!disabled;
+    if (btn.childNodes[0]) btn.childNodes[0].textContent = label;
+  }
   function showRewardedAd(onReward){
     var btn = document.getElementById('adBtn');
-    btn.disabled = true; btn.firstChild.textContent = '⏳ বিজ্ঞাপন লোড হচ্ছে...';
-    setTimeout(function(){
-      btn.disabled = false; btn.firstChild.textContent = '🎁 বিজ্ঞাপন দেখে +15 সেকেন্ড';
-      onReward();
-    }, 2000);
+    if (!btn || btn.disabled) return;
+    if (typeof window.showGiga !== 'function'){
+      setAdBtn('🎁 বিজ্ঞাপন এখনো প্রস্তুত নয়', false);
+      return;
+    }
+    setAdBtn('⏳ বিজ্ঞাপন লোড হচ্ছে...', true);
+    var done = false;
+    function fail(){
+      if (done) return; done = true;
+      setAdBtn('🎁 আবার চেষ্টা করো — বিজ্ঞাপন পাওয়া যায়নি', false);
+    }
+    try {
+      var p = window.showGiga();
+      if (p && typeof p.then === 'function'){
+        p.then(function(){
+          if (done) return; done = true;
+          setAdBtn('🎁 বিজ্ঞাপন দেখে +15 সেকেন্ড', false);
+          onReward();
+        }).catch(fail);
+      } else {
+        fail();
+      }
+    } catch(e){ fail(); }
   }
 
   // ---------- Audio (tiny WebAudio beeps, no files) ----------
@@ -190,6 +212,15 @@
     document.getElementById('overScreen').classList.remove('hidden');
     haptic('win'); beep(660,.15); setTimeout(function(){ beep(880,.2); }, 140);
   }
+  function resumeWithBonus(seconds){
+    timeLeft = Math.max(0, timeLeft) + seconds;
+    if (lives <= 0) lives = 1;
+    items = []; playing = true; lastSpawn = 0; lastTick = performance.now();
+    updateHud(); timeEl.textContent = timeLeft;
+    document.getElementById('startScreen').classList.add('hidden');
+    document.getElementById('overScreen').classList.add('hidden');
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+  }
   // input: drag / touch / mouse
   function moveTo(x){ targetX = Math.max(40, Math.min(W-40, x)); }
   canvas.addEventListener('touchstart', function(e){ moveTo(e.touches[0].clientX); }, {passive:true});
@@ -199,7 +230,7 @@
   document.getElementById('startBtn').addEventListener('click', function(){ beep(520,.1); start(0); });
   document.getElementById('againBtn').addEventListener('click', function(){ beep(520,.1); start(0); });
   document.getElementById('adBtn').addEventListener('click', function(){
-    showRewardedAd(function(){ start(60 + 15); score = parseInt(document.getElementById('finalScore').textContent,10); updateHud(); });
+    showRewardedAd(function(){ resumeWithBonus(15); });
   });
 })();
 </script>
